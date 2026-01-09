@@ -1,0 +1,89 @@
+name: SRA CI (Java/LLM Enterprise)
+
+on:
+  pull_request:
+  push:
+    branches: ['main']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # G-1: 시스템 고정 경로 (사용자님 로컬 PC 인프라)
+  VENV_PY: 'C:\worksra\.venv\Scripts\python.exe'
+  VENV_BIN: 'C:\worksra\.venv\Scripts'
+
+  # G-2: 프로젝트 격리 절대 경로
+  SRA_DATA_ROOT: 'C:\sra_data'
+
+  # LLM 및 정책 관련 변수
+  SRA_LLM_READ_TIMEOUT: 600
+  SRA_POLICY_TOKEN: ${{ secrets.SRA_POLICY_TOKEN }}
+  SRA_REPO_URL: 'https://github.com/sungbae85/worksra.git'
+  SRA_TAG: 'v0.5.5-20260109'
+
+jobs:
+  sra:
+    # 사용자님의 로컬 Runner를 호출 (4ollama 라벨 필수)
+    runs-on: [self-hosted, 4ollama]
+    defaults:
+      run:
+        shell: powershell
+
+    steps:
+      - name: 1. Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 2. Sync SRA Engine
+        run: |
+          $TRUSTED = @("--trusted-host", "pypi.org", "--trusted-host", "files.pythonhosted.org", "--trusted-host", "github.com")
+          Write-Host "Syncing SRA Engine to Enterprise Version: ${{ env.SRA_TAG }}..."
+          & "${{ env.VENV_PY }}" -m pip install $TRUSTED --upgrade pip setuptools wheel
+          & "${{ env.VENV_PY }}" -m pip install $TRUSTED --force-reinstall "git+${{ env.SRA_REPO_URL }}@${{ env.SRA_TAG }}"
+
+      - name: 3. Set Run ID
+        run: |
+          $RID = "${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "SRA_RUN_ID=$RID" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: 4. Run SRA Scan (Java Context)
+        env:
+          SRA_POLICY_TOKEN: ${{ env.SRA_POLICY_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          $env:Path = "${{ env.VENV_BIN }};" + $env:Path
+          # --use-llm on으로 설정하여 로컬 Ollama 연동 활성화
+          & "${{ env.VENV_PY }}" -m sra scan `
+            --repo . `
+            --user "${{ github.actor }}" `
+            --data-root "${{ env.SRA_DATA_ROOT }}" `
+            --run-id "$env:SRA_RUN_ID" `
+            --use-llm on
+
+      - name: 5. Run SRA Gate
+        if: always()
+        run: |
+          $env:Path = "${{ env.VENV_BIN }};" + $env:Path
+          & "${{ env.VENV_PY }}" -m sra gate --repo . --data-root "${{ env.SRA_DATA_ROOT }}" --run-id "$env:SRA_RUN_ID"
+
+      - name: 6. Slack Notification
+        if: always()
+        env:
+          SLACK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          $env:Path = "${{ env.VENV_BIN }};" + $env:Path
+          & "${{ env.VENV_PY }}" -m sra notify --run-id "$env:SRA_RUN_ID" --data-root "${{ env.SRA_DATA_ROOT }}" --webhook-url "${{ env.SLACK_URL }}" --user "${{ github.actor }}"
+
+      - name: 7. Cleanup Old Reports
+        if: always()
+        run: |
+          $limit = (Get-Date).AddDays(-2)
+          $targetPath = Join-Path "${{ env.SRA_DATA_ROOT }}" "*"
+          Get-ChildItem -Path $targetPath -Directory | Where-Object { $_.CreationTime -lt $limit } | ForEach-Object {
+              Remove-Item -Path $_.FullName -Recurse -Force
+          }
+
+

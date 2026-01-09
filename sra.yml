@@ -1,0 +1,48 @@
+schema_version: 1
+
+active_profile: default
+
+profiles:
+  default:
+    # 1. 자바 프로젝트 분석 범위 설정
+    analysis:
+      mode: pr_diff
+      base_branch: main
+      # 자바 소스 코드가 포함된 src 폴더를 명시 (Python의 app/tests 역할)
+      target_paths: 
+        - "src"
+      exclude_patterns:
+        - "**/.*"
+        - "**/target/**"  # Java 빌드 결과물 제외
+        - "**/build/**"   # Gradle 빌드 결과물 제외
+        - "reports/**"
+
+    # 2. 품질 게이트 (Java 기준에 맞춰 상향)
+    quality_gates:
+      min_score: 96        # Java 프로젝트의 안정성을 위해 96점 기준 유지
+      fail_on_high: true
+      pytest_required: false # Java 프로젝트이므로 파이썬 테스트 체크는 비활성화
+
+    # 3. LLM 설정 (로컬 Ollama 연동 최적화)
+    llm:
+      enabled: true
+      provider: "openai_compat"
+      endpoint: "http://127.0.0.1:11434/v1"
+      planner_model: "gemma3:4b"
+      patcher_model: "codegemma:2b"
+      secrets:
+        api_key: "ollama"
+
+# 4. 자바 분석 도구 상세 설정
+tools:
+  java:
+    checkstyle:
+      enabled: true
+      # 사용자님의 로컬 PC 경로에 맞춘 JAR 파일 위치 강제 지정
+      jar_path: "C:/worksra/bin/java/11/checkstyle-all.jar"
+      config_path: "C:/worksra/bin/java/11/google_checks.xml"
+    pmd:
+      enabled: true
+    semgrep_java:
+      enabled: true
+
