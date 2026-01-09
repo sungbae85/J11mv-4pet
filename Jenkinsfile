@@ -45,8 +45,8 @@ pipeline {
         stage("build & SonarQube analysis") {
             steps {
                 script {
-                    withSonarQubeEnv('sonar-united-portal-server') {
-                        sh "mvn sonar:sonar -Dsonar.host.url=https://sonar.united-portal.com -Dlogin=a05206a536e33e5545bd7072bab5eba3cd4d0ca0"
+                    withSonarQubeEnv(installationName: 'sonar-united-portal-server', credentialsId: 'SonarQubeToken')  {
+                        sh "mvn sonar:sonar"
                     }
                 }
             }
