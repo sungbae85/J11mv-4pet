@@ -1,5 +1,6 @@
 name: SRA Scan (Offline Wheel)
 
+
 on:
   pull_request:
     branches: ["main"]
@@ -14,9 +15,11 @@ on:
         required: false
         default: "pr_diff"
 
+
 permissions:
   contents: read
   pull-requests: write
+
 
 jobs:
   scan:
@@ -95,3 +98,5 @@ jobs:
           name: sra-reports
           path: reports/**
           if-no-files-found: warn
+
+
