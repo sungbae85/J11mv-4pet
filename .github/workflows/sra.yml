@@ -44,8 +44,7 @@ jobs:
         run: |
           # PowerShell 배열 구문 정상화
           $TRUSTED = @("--trusted-host", "pypi.org", "--trusted-host", "files.pythonhosted.org", "--trusted-host", "github.com")
-          
-          Write-Host "Syncing SRA Engine to Enterprise Version: ${{ env.SRA_TAG }}..."
+          #Write-Host "Syncing SRA Engine to Enterprise Version: ${{ env.SRA_TAG }}..."
           & "${{ env.VENV_PY }}" -m pip install $TRUSTED --upgrade pip setuptools wheel
           & "${{ env.VENV_PY }}" -m pip install $TRUSTED --force-reinstall "git+${{ env.SRA_REPO_URL }}@${{ env.SRA_TAG }}"
 
