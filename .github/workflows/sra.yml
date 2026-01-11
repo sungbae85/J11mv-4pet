@@ -42,14 +42,19 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Verify offline assets exist
+      - name: Verify local policies exist
         shell: pwsh
         run: |
-          if (!(Test-Path "$env:SRA_POLICIES_DIR\inventory.yml")) { throw "Missing inventory.yml in $env:SRA_POLICIES_DIR" }
-          if (!(Test-Path "$env:SRA_POLICIES_DIR\global_default.yml")) { throw "Missing global_default.yml in $env:SRA_POLICIES_DIR" }
-          if (!(Test-Path "$env:WHEEL_DIR")) { throw "Missing wheel dir: $env:WHEEL_DIR" }
-          $wheels = Get-ChildItem -Path "$env:WHEEL_DIR" -Filter "*.whl" -ErrorAction SilentlyContinue
-          if (!$wheels) { throw "No wheel found in $env:WHEEL_DIR (expected sra-*.whl or worksra-*.whl)" }
+          if (!(Test-Path "$env:SRA_POLICIES_DIR\inventory.yml")) {
+            Write-Error "Missing inventory.yml in $env:SRA_POLICIES_DIR"
+            exit 1
+          }
+
+        if (!(Test-Path "$env:SRA_POLICIES_DIR\global_default.yml")) {
+          Write-Error "Missing global_default.yml in $env:SRA_POLICIES_DIR"
+          exit 1
+        }
+
 
       - name: Create venv
         shell: pwsh
