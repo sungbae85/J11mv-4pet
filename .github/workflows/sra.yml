@@ -14,9 +14,11 @@ permissions:
   contents: read
   pull-requests: write
 
+
 jobs:
   scan:
     runs-on: [self-hosted, windows]
+
 
     env:
       # ✅ 로컬 정책 SSOT
@@ -47,6 +49,7 @@ jobs:
           where python
           python --version
 
+
       - name: Verify local policy files exist
         shell: pwsh
         run: |
@@ -74,13 +77,14 @@ jobs:
             exit 1
           }
 
-          # ✅ 권장: vendor/requirements-sra.txt에 정확한 버전 pin
+          # 권장: vendor/requirements-sra.txt에 정확한 버전 pin
           if (Test-Path "vendor/requirements-sra.txt") {
             .\.venv\Scripts\python -m pip install --no-index --find-links "$env:WHEEL_DIR" -r vendor/requirements-sra.txt
           } else {
             # requirements 파일이 없다면 최소한 sra 패키지를 wheel에서 찾도록 시도
             .\.venv\Scripts\python -m pip install --no-index --find-links "$env:WHEEL_DIR" sra
           }
+
 
           .\.venv\Scripts\python -c "import sra; print('SRA import OK')"
 
@@ -104,3 +108,5 @@ jobs:
           name: sra-reports
           path: reports/**
           if-no-files-found: warn
+
+
