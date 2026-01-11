@@ -1,102 +1,106 @@
-name: SRA Scan (Offline Wheel)
-
+name: SRA CI (Enterprise Managed)
 
 on:
   pull_request:
-    branches: ["main"]
-  workflow_dispatch:
-    inputs:
-      use_llm:
-        description: "Use LLM (on/off)"
-        required: false
-        default: "off"
-      context_mode:
-        description: "Context mode (pr_diff/full)"
-        required: false
-        default: "pr_diff"
+  push:
+    branches: ['main']
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
-permissions:
-  contents: read
-  pull-requests: write
+env:
+  # G-1: 시스템 고정 경로 (러너 PC 인프라)
+  VENV_PY: 'C:\worksra\.venv\Scripts\python.exe'
+  VENV_BIN: 'C:\worksra\.venv\Scripts'
 
+  # G-2: 프로젝트 격리 절대 경로
+  SRA_DATA_ROOT: 'C:\sra_data'
+
+  # LLM 읽기 타임아웃
+  SRA_LLM_READ_TIMEOUT: 600
+
+  # 중앙 정책 저장소 접근용 토큰
+  SRA_POLICY_TOKEN: ${{ secrets.SRA_POLICY_TOKEN }}
+
+  # [버전 관리] 중앙 통제 로직이 포함된 최신 패치 버전
+  SRA_REPO_URL: 'https://github.com/sungbae85/worksra.git'
+  SRA_TAG: 'v0.5.6-20260110'
 
 jobs:
-  scan:
-    runs-on: [self-hosted, windows]
-
-    env:
-      # ✅ 로컬 정책 SSOT
-      SRA_POLICY_SOURCE: local
-      SRA_POLICIES_DIR: C:\sra-policies
-
-      # (선택) tools/bundle 레이아웃 루트가 worksra면
-      SRA_HOME: C:\worksra
-
-      # wheel 경로(레포 안)
-      WHEEL_DIR: vendor/wheels
+  sra:
+    runs-on: [self-hosted, 4ollama]
+    defaults:
+      run:
+        shell: powershell
 
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          fetch-depth: 0
 
-      - name: Verify local policies exist
-        shell: pwsh
+      - name: Install SRA Engine
         run: |
-          if (!(Test-Path "$env:SRA_POLICIES_DIR\inventory.yml")) {
-            Write-Error "Missing inventory.yml in $env:SRA_POLICIES_DIR"
-            exit 1
+          # PowerShell 배열 구문 정상화
+          $TRUSTED = @("--trusted-host", "pypi.org", "--trusted-host", "files.pythonhosted.org", "--trusted-host", "github.com")
+          
+          Write-Host "Syncing SRA Engine to Enterprise Version: ${{ env.SRA_TAG }}..."
+          & "${{ env.VENV_PY }}" -m pip install $TRUSTED --upgrade pip setuptools wheel
+          & "${{ env.VENV_PY }}" -m pip install $TRUSTED --force-reinstall "git+${{ env.SRA_REPO_URL }}@${{ env.SRA_TAG }}"
+
+      - name: Set Run ID
+        run: |
+          $RID = "${{ github.run_id }}-${{ github.run_attempt }}"
+          # 환경 변수 저장 (GITHUB_ENV)
+          echo "SRA_RUN_ID=$RID" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Assigned Run ID: $RID"
+
+      - name: Run SRA Scan (Centralized Policy Mode)
+        env:
+          SRA_POLICY_TOKEN: ${{ env.SRA_POLICY_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          $env:Path = "${{ env.VENV_BIN }};" + $env:Path
+          # 명령어 백틱 연산자 주위에 공백을 주어 파싱 오류 방지
+          & "${{ env.VENV_PY }}" -m sra scan `
+            --repo . `
+            --user "${{ github.actor }}" `
+            --data-root "${{ env.SRA_DATA_ROOT }}" `
+            --run-id "$env:SRA_RUN_ID" `
+            --use-llm off
+
+      - name: Run SRA Gate (Enterprise Quality Control)
+        if: always()
+        env:
+          SRA_POLICY_TOKEN: ${{ env.SRA_POLICY_TOKEN }}
+        run: |
+          $env:Path = "${{ env.VENV_BIN }};" + $env:Path
+          # gate 명령어 실행
+          & "${{ env.VENV_PY }}" -m sra gate `
+            --repo . `
+            --data-root "${{ env.SRA_DATA_ROOT }}" `
+            --run-id "$env:SRA_RUN_ID"
+
+      - name: Slack Notification
+        if: always()
+        env:
+          SLACK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          $env:Path = "${{ env.VENV_BIN }};" + $env:Path
+          # notify 명령어에서 불필요한 '.' 인자 제거
+          & "${{ env.VENV_PY }}" -m sra notify `
+            --run-id "$env:SRA_RUN_ID" `
+            --data-root "${{ env.SRA_DATA_ROOT }}" `
+            --webhook-url "${{ env.SLACK_URL }}" `
+            --user "${{ github.actor }}"
+
+      - name: "Cleanup Old Reports"
+        if: always()
+        run: |
+          $limit = (Get-Date).AddDays(-2)
+          # 'fastapi-demo'는 예시이므로 실제 프로젝트 폴더에 맞춰 경로를 동적 탐색하거나 확인 필요
+          $targetPath = Join-Path "${{ env.SRA_DATA_ROOT }}" "*"
+          Get-ChildItem -Path $targetPath -Directory | Where-Object { $_.CreationTime -lt $limit } | ForEach-Object {
+              Remove-Item -Path $_.FullName -Recurse -Force
           }
-          if (!(Test-Path "$env:SRA_POLICIES_DIR\global_default.yml")) {
-            Write-Error "Missing global_default.yml in $env:SRA_POLICIES_DIR"
-            exit 1
-          }
-
-      - name: Create venv
-        shell: pwsh
-        run: |
-          python -m venv .venv
-          .\.venv\Scripts\python -m pip install -U pip
-
-      - name: Install SRA (offline wheel, pinned)
-        shell: pwsh
-        run: |
-          # ✅ 권장: requirements에 정확한 버전 명시
-          #   예) vendor/requirements-sra.txt에 "sra==0.5.6.post20260110"
-          #  없으면, wheel dir에서 설치 가능한 패키지 설치
-          if (Test-Path "vendor/requirements-sra.txt") {
-            .\.venv\Scripts\python -m pip install --no-index --find-links "$env:WHEEL_DIR" -r vendor/requirements-sra.txt
-          } else {
-            # wheel 파일이 1개라고 가정(또는 sra/worksra wheel이 포함)
-            .\.venv\Scripts\python -m pip install --no-index --find-links "$env:WHEEL_DIR" sra
-          }
-
-          .\.venv\Scripts\python -c "import sra; print('SRA import OK')"
-
-      - name: "Run SRA (PR: LLM OFF)"
-        if: github.event_name == 'pull_request'
-        shell: pwsh
-        run: |
-          .\.venv\Scripts\python -m sra scan --repo . --use-llm off
-
-      - name: Run SRA (Manual)
-        if: github.event_name == 'workflow_dispatch'
-        shell: pwsh
-        run: |
-          $use_llm = "${{ inputs.use_llm }}"
-          if ([string]::IsNullOrWhiteSpace($use_llm)) { $use_llm = "off" }
-          .\.venv\Scripts\python -m sra scan --repo . --use-llm $use_llm
-
-      - name: Upload reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: sra-reports
-          path: reports/**
-          if-no-files-found: warn
-
-
