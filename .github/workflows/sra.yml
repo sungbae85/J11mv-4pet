@@ -40,11 +40,19 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Normalize Python path for sync
+        shell: pwsh
+        run: |
+          $py = (Get-Command python).Source
+          $py = $py.Trim('"')   # 혹시 따옴표가 섞여 들어올 경우 방지
+          echo "SRA_PYTHON=$py" >> $env:GITHUB_ENV
+          Write-Host "SRA_PYTHON=$py"
+    
       - name: Install SRA Engine
         run: |
           # PowerShell 배열 구문 정상화
           $TRUSTED = @("--trusted-host", "pypi.org", "--trusted-host", "files.pythonhosted.org", "--trusted-host", "github.com")
-          #Write-Host "Syncing SRA Engine to Enterprise Version: ${{ env.SRA_TAG }}..."
+          Write-Host "Syncing SRA Engine to Enterprise Version: ${{ env.SRA_TAG }}..."
           & "${{ env.VENV_PY }}" -m pip install $TRUSTED --upgrade pip setuptools wheel
           & "${{ env.VENV_PY }}" -m pip install $TRUSTED --force-reinstall "git+${{ env.SRA_REPO_URL }}@${{ env.SRA_TAG }}"
 
