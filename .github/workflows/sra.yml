@@ -14,7 +14,6 @@ permissions:
   contents: read
   pull-requests: write
 
-
 jobs:
   scan:
     runs-on: [self-hosted, windows]
