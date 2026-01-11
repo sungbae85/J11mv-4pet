@@ -49,12 +49,10 @@ jobs:
             Write-Error "Missing inventory.yml in $env:SRA_POLICIES_DIR"
             exit 1
           }
-
           if (!(Test-Path "$env:SRA_POLICIES_DIR\global_default.yml")) {
             Write-Error "Missing global_default.yml in $env:SRA_POLICIES_DIR"
             exit 1
           }
-
 
       - name: Create venv
         shell: pwsh
